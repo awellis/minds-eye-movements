@@ -1,38 +1,30 @@
----
-title: "Simulation of data to determine sample size"
-output:
-  html_document:
-    df_print: paged
-editor_options:
-  chunk_output_type: console
----
-The experiment wants to look at whether people differ in terms of their drift rate (evidence accumulation) when they imagined something and then see the stimulus briefly. They will have to decide whether there was a stimulus in the noise (1) or not (-1). We use a DDM to model the data and the influence of congruent pics and their interaction with Recurrence values. 
-
-This script tries to determine the necessary sample size. We assume recurrence values based on previous experiments and we assume differences in facilitation and inhibition according to Djikstra in trials in which a target (always congruent) was present. 
-
-
-```{r setup}
+## ----setup--------------------------------------------------
 library(tidyverse)
 library(kogpsy)
 
-```
 
-```{r DDM from Andrew}
+
+## ----DDM from Andrew----------------------------------------
 out <- drift_diffusion(bias = 0.3, driftrate = 0.8)
 
-ggplot2::ggplot(out, aes(time, dv)) + 
+ggplot2::ggplot(out, aes(time, dv)) +
   geom_line()
-```
 
-```{r my adaptations}
-my_drift_diffusion <- function(bias = 0.5, driftrate = 1, decision_boundary = 2, ndt = 0.5, 
-                            diffvar = 0.1, dt = 0.001) {
+
+## ----my adaptations-----------------------------------------
+my_drift_diffusion <- function(bias = 0.5,
+                               driftrate = 1,
+                               decision_boundary = 2,
+                               ndt = 0.5,
+                               diffvar = 0.1,
+                               dt = 0.001) {
   assertthat::assert_that(diffvar > 0)
+
   bias <- as.integer(2 * decision_boundary * bias - decision_boundary)
 
   dv <- rnorm(1, mean = bias, sd = sqrt(dt))
   j <- 2
-  
+
   while (abs(tail(dv,1)) < decision_boundary) {
 
       if (j <= ndt/dt) {
@@ -42,37 +34,24 @@ my_drift_diffusion <- function(bias = 0.5, driftrate = 1, decision_boundary = 2,
         error <- rnorm(1, 0, sqrt(diffvar * dt))
         dv[j] <- dv[j - 1] + driftrate * dt + error
         if (abs(dv[j]) > decision_boundary) {
-          dv[j] <- ifelse(dv[j] > 0, min(dv[j], decision_boundary), 
+          dv[j] <- ifelse(dv[j] > 0, min(dv[j], decision_boundary),
                           max(dv[j], -decision_boundary))
           (break)()
         }
       }
     j <- j+1
   }
-  out <- dplyr::tibble(time = round(seq_along(dv) * dt, 2), 
+  out <- dplyr::tibble(time = round(seq_along(dv) * dt, 2),
                        dv = dv, steps = seq_along(dv))
   return(out)
 }
-```
 
-Aim: we want to simulate the outcome of a Drift diffusion process with specific characteristics of the drift-rate. We hypothesize that the drift-rate (leading ultimately to inhibition or facilitation) differs between participants and that this difference is explained by the participants recurrence values during imagery that is: 
 
-```r
-dv ~ Intercept + b1* congruencce + b2* recurrence + b3 * imagery*recurrence
-```
-
-we use this formula to determine the drift rate that we feed to drift_diffusion to simulate our data from.
-
-We assume that the intercept is zero, that imagery in and of itself introduces a slight positive drift rate (as in Pearson and Djistras overall results, where generally in imagery the cogruente stimulus is a little bit more dominant). Thus congruence and that recurrence itself has no general effect. But, we assume that there is an interaction between congruence and recurrence. 
-
-congruence is coded with 1/-1 (congruence or incongruence). recurrence varies between 0 and 1. 
-b1 will be small but positive, b2 zero and b3 we will vary between negative and positive numbers to simulate that in some people with. 
-
-```{r data from one participant and one trial}
+## ----data from one participant and one trial----------------
 my_intercept = 0
 my_b_congruence = 0.01
 my_congruence = 1
-my_b_rec = 0 
+my_b_rec = 0
 my_rec = 0.3 # this will also change between participants according to my own data
 my_b_interaction = -0.5 # this will be the thing that we change between participants. Also this should vary a bit within participants, so generate trial-noise
 
@@ -81,29 +60,26 @@ my_dr <- my_intercept + my_b_congruence*my_congruence + my_b_rec* my_rec + my_b_
 
 out <- my_drift_diffusion(bias = 0.3, driftrate = my_dr, decision_boundary = 1)
 
-ggplot2::ggplot(out, aes(time, dv)) + 
+ggplot2::ggplot(out, aes(time, dv)) +
   geom_line()
 
 my_rt <- tail(out$time,1)
 
-```
 
 
-reaction times are in out$time, so use tail() to get to the simulated reaction time
-
-first step is to simulate 20 trials of one patricipant
-```{r runtrials of one Vp}
+## ----runtrials of one Vp------------------------------------
 n_trials <- 20
 
-true_dr <-  my_intercept + my_b_congruence*my_congruence + my_b_rec* my_rec + my_b_interaction * my_congruence * my_rec
-error <- abs(true_dr*0.1)
+
 
 #this varies a bit within participants, but the means stay the same, because we assume that the effects are the same for all
 my_intercept = rnorm(n = 1, mean = 0, sd = 0.1)
 my_b_congruence = rnorm(n = 1, mean = 0.01, sd = 0.01)
-my_congruence = 1 
+my_congruence = 1
 my_b_rec = rnorm(n = 1, mean = 0, sd = 0.01)
 
+true_dr <-  my_intercept + my_b_congruence*my_congruence + my_b_rec* my_rec + my_b_interaction * my_congruence * my_rec
+error <- abs(true_dr*0.1)
 
 # these are the differences between participants
 my_rec = rnorm(n = 1, 0.3, sd = 0.02) # this will  change between participants according to my own data
@@ -120,17 +96,15 @@ for (i in 1:n_trials) {
 
 hist(rts)
 
-```
 
-next, run 20 trials for different participants and run then a brmsDDM to recover the parameters. 
 
-```{r trials for some participants}
+## ----trials for some participants---------------------------
 n_vp <- 100
 n_trials <- 20
 
 # prepare the output-file
-result_file <- tibble(Vp = rep(1:n_vp, each = n_trials), 
-                      trialNum = rep(1:n_trials, n_vp), 
+result_file <- tibble(Vp = rep(1:n_vp, each = n_trials),
+                      trialNum = rep(1:n_trials, n_vp),
                       congruence = rep(NA, n_vp*n_trials),
                       rec = rep(NA, n_vp*n_trials),
                       true_dr = rep(NA, n_vp*n_trials),
@@ -145,52 +119,52 @@ line_counter <- 1 # to index the line in results_file
 for (corrVp in 1:n_vp) {
   # set the participant-specific parameters: rec and b3
   # recurrence: sample a rec value from a distirbution that represents the rec in old experiments
-  
+
    #rbeta(1000,0.6, 2) #this reflects best the distribution of the true data in the cognition papaer
-   
+
   curr_true_rec <- rbeta(1, 0.6, 2)
-  
-  # interaction: sample based on djikstra: half of participants show no influence, twice as many show facilitation as show inhibition. a normal distribution with a slightly positive mean will do. 
+
+  # interaction: sample based on djikstra: half of participants show no influence, twice as many show facilitation as show inhibition. a normal distribution with a slightly positive mean will do.
   curr_b_interaction = rnorm(1, mean = 0.2, sd = 0.3)
-  
+
   #hist(rnorm(1000, mean = 0.2, sd = 0.3))
 
-  for (currTrial in 1: n_trials) {
-    
+  for (currTrial in 1:n_trials) {
+
     #include the trial-by-trial variance
     #this varies a bit within participants, but the means stay the same, because we assume that the effects are the same for all
     my_intercept = rnorm(n = 1, mean = 0, sd = 0.1)
-     
+
    my_b_congruence = rnorm(n = 1, mean = 0.1, sd = 0.01) # sligtly positive because there is an overall trend
-  
-    my_b_rec = rnorm(n = 1, mean = 0, sd = 0.01) # we don't expect a general effect 
-                    
+
+    my_b_rec = rnorm(n = 1, mean = 0, sd = 0.01) # we don't expect a general effect
+
     if (currTrial <= 10) { #because in half of the trials there will be a congruent image
       my_congruence = 1 }
     else {
       my_congruence = 0}
-      
+
     # set the true drift rate
-    true_dr <-  my_intercept + 
-                my_b_congruence * my_congruence + 
-                my_b_rec* curr_true_rec + 
+    true_dr <-  my_intercept +
+                my_b_congruence * my_congruence +
+                my_b_rec* curr_true_rec +
                 curr_b_interaction * my_congruence * curr_true_rec
-      
+
     #error <- abs(true_dr*0.01)
     my_dr <- rnorm(mean = true_dr, sd = 0.01, n = 1)
-    
+
     currOut <- my_drift_diffusion(bias = 0.05, driftrate = my_dr, decision_boundary = 1) # rtdists rdiffusion
-    
+
     currAnswer <- ifelse(tail(currOut$dv,1) > 0, 1, -1)
     currRT <- tail(currOut$time, 1)
-    
+
     result_file$congruence[line_counter] <- my_congruence
     result_file$rec[line_counter] <- curr_true_rec
     result_file$true_dr[line_counter] <- true_dr
     result_file$rt[line_counter] <-  abs(currRT)
     result_file$answer[line_counter] <- currAnswer
     result_file$true_interaction_beta[line_counter] <- curr_b_interaction
-    
+
   line_counter <- line_counter + 1
   } # trial loop
 } #participant loop
@@ -226,54 +200,31 @@ a <- ranef(firstfit)
 # a$Vp[,3,"congruence:rec"] # Q2.5
 # a$Vp[,4,"congruence:rec"] # Q97.5
 test_result_file <- result_file %>%
-  group_by(Vp) %>% 
+  group_by(Vp) %>%
   summarize(true_b3 = unique(true_interaction_beta)) %>%
-  mutate(estim_b3 = a$Vp[,1,"congruence1:rec"], # estimates, 
+  mutate(estim_b3 = a$Vp[,1,"congruence1:rec"], # estimates,
          estim_b3Q2.5 = a$Vp[,3,"congruence1:rec"], # estimates
          estim_b3Q97.5 = a$Vp[,4,"congruence1:rec"])
 
 
 test_result_file %>%
-  ggplot(aes(x = Vp)) + 
-  geom_point(aes(y = true_b3)) + 
+  ggplot(aes(x = Vp)) +
+  geom_point(aes(y = true_b3)) +
   geom_point(aes(y = estim_b3), color = "red") +
-  geom_errorbar(aes(ymin = estim_b3Q2.5, 
+  geom_errorbar(aes(ymin = estim_b3Q2.5,
                     y = estim_b3,
                     ymax = estim_b3Q97.5), alpha = 0.2)
 
 
 test_result_file %>%
-  gather(key = origin, 
-         value = b3size, 
+  gather(key = origin,
+         value = b3size,
          2:3) %>%
   ggplot(aes(x = b3size, y= ..density.., color = origin)) + geom_density()
 
-```
 
 
-
-next, run 20 trials for different participants with varying interaction b3
-
-```{r loop over nVpn}
-
-
-
-
-```
-
-
-next, loop over n(participants) until we get good enough differences between them to reconstruct the parameters with brms
-
-
-
-
-
-
-
-
-
-
-
+## ----loop over nVpn-----------------------------------------
 
 
 
